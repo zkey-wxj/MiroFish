@@ -125,6 +125,11 @@ LLM_MODEL_NAME=qwen-plus
 # Zep Cloud 配置
 # 每月免费额度即可支撑简单使用：https://app.getzep.com/
 ZEP_API_KEY=your_zep_api_key
+# 图谱后端选择（二选一，默认 Zep）
+# 如使用 RAGflow，将 GRAPH_BACKEND 设为 ragflow，不再需要 ZEP_API_KEY
+# GRAPH_BACKEND=ragflow
+# RAGFLOW_BASE_URL=http://localhost
+# RAGFLOW_API_KEY=your-ragflow-api-key
 ```
 
 #### 2. 安装依赖

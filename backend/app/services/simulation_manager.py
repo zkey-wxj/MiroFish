@@ -15,6 +15,7 @@ from enum import Enum
 from ..config import Config
 from ..utils.logger import get_logger
 from .zep_entity_reader import ZepEntityReader, FilteredEntities
+from .ragflow_entity_reader import RagflowEntityReader
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
 from .simulation_config_generator import SimulationConfigGenerator, SimulationParameters
 
@@ -269,14 +270,20 @@ class SimulationManager:
             sim_dir = self._get_simulation_dir(simulation_id)
             
             # ========== 阶段1: 读取并过滤实体 ==========
+            is_ragflow = state.graph_id.startswith("ragflow_")
+
             if progress_callback:
-                progress_callback("reading", 0, "正在连接Zep图谱...")
-            
-            reader = ZepEntityReader()
-            
+                backend_name = "RAGflow" if is_ragflow else "Zep"
+                progress_callback("reading", 0, f"正在连接{backend_name}图谱...")
+
+            if is_ragflow:
+                reader = RagflowEntityReader()
+            else:
+                reader = ZepEntityReader()
+
             if progress_callback:
                 progress_callback("reading", 30, "正在读取节点数据...")
-            
+
             filtered = reader.filter_defined_entities(
                 graph_id=state.graph_id,
                 defined_entity_types=defined_entity_types,
@@ -311,8 +318,9 @@ class SimulationManager:
                     total=total_entities
                 )
             
-            # 传入graph_id以启用Zep检索功能，获取更丰富的上下文
-            generator = OasisProfileGenerator(graph_id=state.graph_id)
+            # 对于RAGflow图谱，跳过Zep检索（graph_id=None），使用实体自带的related_edges
+            zep_graph_id = None if is_ragflow else state.graph_id
+            generator = OasisProfileGenerator(graph_id=zep_graph_id)
             
             def profile_progress(current, total, msg):
                 if progress_callback:
@@ -339,10 +347,10 @@ class SimulationManager:
                 entities=filtered.entities,
                 use_llm=use_llm_for_profiles,
                 progress_callback=profile_progress,
-                graph_id=state.graph_id,  # 传入graph_id用于Zep检索
-                parallel_count=parallel_profile_count,  # 并行生成数量
-                realtime_output_path=realtime_output_path,  # 实时保存路径
-                output_platform=realtime_platform  # 输出格式
+                graph_id=zep_graph_id,  # RAGflow图谱传None，跳过Zep检索
+                parallel_count=parallel_profile_count,
+                realtime_output_path=realtime_output_path,
+                output_platform=realtime_platform
             )
             
             state.profiles_count = len(profiles)

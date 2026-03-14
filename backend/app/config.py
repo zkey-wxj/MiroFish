@@ -34,6 +34,15 @@ class Config:
     
     # Zep配置
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
+
+    # RAGflow配置（知识图谱后端替代方案）
+    # GRAPH_BACKEND: 图谱构建后端，可选 "zep"（默认）或 "ragflow"
+    GRAPH_BACKEND = os.environ.get('GRAPH_BACKEND', 'zep')
+    RAGFLOW_BASE_URL = os.environ.get('RAGFLOW_BASE_URL', 'http://localhost')
+    RAGFLOW_API_KEY = os.environ.get('RAGFLOW_API_KEY')
+    # RAGflow可选配置：指定使用的LLM和Embedding模型（留空使用RAGflow系统默认）
+    RAGFLOW_LLM_ID = os.environ.get('RAGFLOW_LLM_ID', '')
+    RAGFLOW_EMBEDDING_MODEL = os.environ.get('RAGFLOW_EMBEDDING_MODEL', '')
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
@@ -69,7 +78,11 @@ class Config:
         errors = []
         if not cls.LLM_API_KEY:
             errors.append("LLM_API_KEY 未配置")
-        if not cls.ZEP_API_KEY:
-            errors.append("ZEP_API_KEY 未配置")
+        if cls.GRAPH_BACKEND == 'ragflow':
+            if not cls.RAGFLOW_API_KEY:
+                errors.append("RAGFLOW_API_KEY 未配置（当前 GRAPH_BACKEND=ragflow）")
+        else:
+            if not cls.ZEP_API_KEY:
+                errors.append("ZEP_API_KEY 未配置")
         return errors
 

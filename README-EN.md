@@ -125,6 +125,11 @@ LLM_MODEL_NAME=qwen-plus
 # Zep Cloud Configuration
 # Free monthly quota is sufficient for simple usage: https://app.getzep.com/
 ZEP_API_KEY=your_zep_api_key
+# Graph backend choice (pick one, defaults to Zep)
+# To use RAGflow instead, set GRAPH_BACKEND=ragflow; ZEP_API_KEY is then not required
+# GRAPH_BACKEND=ragflow
+# RAGFLOW_BASE_URL=http://localhost
+# RAGFLOW_API_KEY=your-ragflow-api-key
 ```
 
 #### 2. Install Dependencies

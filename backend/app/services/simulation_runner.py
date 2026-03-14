@@ -373,13 +373,16 @@ class SimulationRunner:
             if not graph_id:
                 raise ValueError("启用图谱记忆更新时必须提供 graph_id")
             
-            try:
-                ZepGraphMemoryManager.create_updater(simulation_id, graph_id)
-                cls._graph_memory_enabled[simulation_id] = True
-                logger.info(f"已启用图谱记忆更新: simulation_id={simulation_id}, graph_id={graph_id}")
-            except Exception as e:
-                logger.error(f"创建图谱记忆更新器失败: {e}")
-                cls._graph_memory_enabled[simulation_id] = False
+            if graph_id and graph_id.startswith("ragflow_"):
+                logger.info(f"RAGflow后端不支持实时图谱记忆更新，跳过: simulation_id={simulation_id}")
+            else:
+                try:
+                    ZepGraphMemoryManager.create_updater(simulation_id, graph_id)
+                    cls._graph_memory_enabled[simulation_id] = True
+                    logger.info(f"已启用图谱记忆更新: simulation_id={simulation_id}, graph_id={graph_id}")
+                except Exception as e:
+                    logger.error(f"创建图谱记忆更新器失败: {e}")
+                    cls._graph_memory_enabled[simulation_id] = False
         else:
             cls._graph_memory_enabled[simulation_id] = False
         

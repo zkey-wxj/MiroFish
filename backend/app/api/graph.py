@@ -6,17 +6,46 @@
 import os
 import traceback
 import threading
+from typing import Optional
 from flask import request, jsonify
 
 from . import graph_bp
 from ..config import Config
 from ..services.ontology_generator import OntologyGenerator
 from ..services.graph_builder import GraphBuilderService
+from ..services.ragflow_graph_builder import RagflowGraphBuilderService
 from ..services.text_processor import TextProcessor
 from ..utils.file_parser import FileParser
 from ..utils.logger import get_logger
 from ..models.task import TaskManager, TaskStatus
 from ..models.project import ProjectManager, ProjectStatus
+
+
+def _is_ragflow_graph(graph_id: str) -> bool:
+    return graph_id.startswith("ragflow_")
+
+
+def _get_builder(graph_id: Optional[str] = None, backend: Optional[str] = None):
+    """
+    根据graph_id前缀或backend参数返回合适的图谱构建服务实例。
+
+    优先级：backend参数 > graph_id前缀 > GRAPH_BACKEND配置
+    """
+    # 从显式参数或graph_id前缀确定后端
+    if backend is None:
+        if graph_id and _is_ragflow_graph(graph_id):
+            backend = "ragflow"
+        else:
+            backend = Config.GRAPH_BACKEND
+
+    if backend == "ragflow":
+        if not Config.RAGFLOW_API_KEY:
+            raise ValueError("RAGFLOW_API_KEY 未配置，无法使用RAGflow后端")
+        return RagflowGraphBuilderService()
+    else:
+        if not Config.ZEP_API_KEY:
+            raise ValueError("ZEP_API_KEY 未配置，无法使用Zep后端")
+        return GraphBuilderService(api_key=Config.ZEP_API_KEY)
 
 # 获取日志器
 logger = get_logger('mirofish.api')
@@ -281,22 +310,27 @@ def build_graph():
     """
     try:
         logger.info("=== 开始构建图谱 ===")
-        
-        # 检查配置
-        errors = []
-        if not Config.ZEP_API_KEY:
-            errors.append("ZEP_API_KEY未配置")
-        if errors:
-            logger.error(f"配置错误: {errors}")
-            return jsonify({
-                "success": False,
-                "error": "配置错误: " + "; ".join(errors)
-            }), 500
-        
+
         # 解析请求
         data = request.get_json() or {}
         project_id = data.get('project_id')
-        logger.debug(f"请求参数: project_id={project_id}")
+        # backend参数：显式指定后端（"zep" 或 "ragflow"），不传则使用配置默认值
+        requested_backend = data.get('backend', Config.GRAPH_BACKEND)
+        logger.debug(f"请求参数: project_id={project_id}, backend={requested_backend}")
+
+        # 检查后端配置
+        if requested_backend == 'ragflow':
+            if not Config.RAGFLOW_API_KEY:
+                return jsonify({
+                    "success": False,
+                    "error": "RAGFLOW_API_KEY未配置，无法使用RAGflow后端"
+                }), 500
+        else:
+            if not Config.ZEP_API_KEY:
+                return jsonify({
+                    "success": False,
+                    "error": "ZEP_API_KEY未配置，无法使用Zep后端"
+                }), 500
         
         if not project_id:
             return jsonify({
@@ -363,116 +397,129 @@ def build_graph():
         # 创建异步任务
         task_manager = TaskManager()
         task_id = task_manager.create_task(f"构建图谱: {graph_name}")
-        logger.info(f"创建图谱构建任务: task_id={task_id}, project_id={project_id}")
-        
+        logger.info(f"创建图谱构建任务: task_id={task_id}, project_id={project_id}, backend={requested_backend}")
+
         # 更新项目状态
         project.status = ProjectStatus.GRAPH_BUILDING
         project.graph_build_task_id = task_id
+        project.graph_backend = requested_backend
         ProjectManager.save_project(project)
-        
+
+        # 获取项目文件路径（供RAGflow直接上传原始文件）
+        project_file_paths = ProjectManager.get_project_files(project_id)
+
         # 启动后台任务
         def build_task():
             build_logger = get_logger('mirofish.build')
             try:
-                build_logger.info(f"[{task_id}] 开始构建图谱...")
+                build_logger.info(f"[{task_id}] 开始构建图谱（后端: {requested_backend}）...")
                 task_manager.update_task(
-                    task_id, 
+                    task_id,
                     status=TaskStatus.PROCESSING,
-                    message="初始化图谱构建服务..."
+                    message=f"初始化图谱构建服务（{requested_backend}）..."
                 )
-                
-                # 创建图谱构建服务
-                builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
-                
-                # 分块
-                task_manager.update_task(
-                    task_id,
-                    message="文本分块中...",
-                    progress=5
-                )
-                chunks = TextProcessor.split_text(
-                    text, 
-                    chunk_size=chunk_size, 
-                    overlap=chunk_overlap
-                )
-                total_chunks = len(chunks)
-                
-                # 创建图谱
-                task_manager.update_task(
-                    task_id,
-                    message="创建Zep图谱...",
-                    progress=10
-                )
-                graph_id = builder.create_graph(name=graph_name)
-                
-                # 更新项目的graph_id
-                project.graph_id = graph_id
-                ProjectManager.save_project(project)
-                
-                # 设置本体
-                task_manager.update_task(
-                    task_id,
-                    message="设置本体定义...",
-                    progress=15
-                )
-                builder.set_ontology(graph_id, ontology)
-                
-                # 添加文本（progress_callback 签名是 (msg, progress_ratio)）
-                def add_progress_callback(msg, progress_ratio):
-                    progress = 15 + int(progress_ratio * 40)  # 15% - 55%
+
+                # 初始化变量（两种后端都需要）
+                graph_id = ""
+                node_count = 0
+                edge_count = 0
+
+                if requested_backend == 'ragflow':
+                    # ── RAGflow后端 ──────────────────────────────────────────
+                    builder = RagflowGraphBuilderService()
+                    task_manager.update_task(task_id, progress=5,
+                                             message="正在创建RAGflow数据集...")
+
+                    # RAGflow优先上传原始文件，没有文件时上传提取的文本
+                    builder_task_id = builder.build_graph_async(
+                        text=text,
+                        ontology=ontology,
+                        graph_name=graph_name,
+                        file_paths=project_file_paths if project_file_paths else None,
+                    )
+
+                    # 轮询RAGflow子任务直到完成
+                    import time as _time
+                    while True:
+                        sub_task = task_manager.get_task(builder_task_id)
+                        if sub_task is None:
+                            break
+                        # 将子任务进度同步到主任务
+                        task_manager.update_task(
+                            task_id,
+                            progress=sub_task.progress or 0,
+                            message=sub_task.message or ""
+                        )
+                        if sub_task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+                            if sub_task.status == TaskStatus.FAILED:
+                                raise RuntimeError(sub_task.error or "RAGflow构建失败")
+                            # 从子任务结果获取graph_id
+                            result = sub_task.result or {}
+                            graph_id = result.get("graph_id", "")
+                            node_count = result.get("node_count", 0)
+                            edge_count = result.get("edge_count", 0)
+                            break
+                        _time.sleep(3)
+
+                    project.graph_id = graph_id
+                    ProjectManager.save_project(project)
+
+                else:
+                    # ── Zep后端（原有逻辑）───────────────────────────────────
+                    builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+
+                    task_manager.update_task(task_id, message="文本分块中...", progress=5)
+                    chunks = TextProcessor.split_text(
+                        text, chunk_size=chunk_size, overlap=chunk_overlap
+                    )
+                    total_chunks = len(chunks)
+
+                    task_manager.update_task(task_id, message="创建Zep图谱...", progress=10)
+                    graph_id = builder.create_graph(name=graph_name)
+
+                    project.graph_id = graph_id
+                    ProjectManager.save_project(project)
+
+                    task_manager.update_task(task_id, message="设置本体定义...", progress=15)
+                    builder.set_ontology(graph_id, ontology)
+
+                    def add_progress_callback(msg, progress_ratio):
+                        progress = 15 + int(progress_ratio * 40)  # 15% - 55%
+                        task_manager.update_task(task_id, message=msg, progress=progress)
+
                     task_manager.update_task(
                         task_id,
-                        message=msg,
-                        progress=progress
+                        message=f"开始添加 {total_chunks} 个文本块...",
+                        progress=15
                     )
-                
-                task_manager.update_task(
-                    task_id,
-                    message=f"开始添加 {total_chunks} 个文本块...",
-                    progress=15
-                )
-                
-                episode_uuids = builder.add_text_batches(
-                    graph_id, 
-                    chunks,
-                    batch_size=3,
-                    progress_callback=add_progress_callback
-                )
-                
-                # 等待Zep处理完成（查询每个episode的processed状态）
-                task_manager.update_task(
-                    task_id,
-                    message="等待Zep处理数据...",
-                    progress=55
-                )
-                
-                def wait_progress_callback(msg, progress_ratio):
-                    progress = 55 + int(progress_ratio * 35)  # 55% - 90%
+                    episode_uuids = builder.add_text_batches(
+                        graph_id, chunks, batch_size=3,
+                        progress_callback=add_progress_callback
+                    )
+
                     task_manager.update_task(
-                        task_id,
-                        message=msg,
-                        progress=progress
+                        task_id, message="等待Zep处理数据...", progress=55
                     )
-                
-                builder._wait_for_episodes(episode_uuids, wait_progress_callback)
-                
-                # 获取图谱数据
-                task_manager.update_task(
-                    task_id,
-                    message="获取图谱数据...",
-                    progress=95
-                )
-                graph_data = builder.get_graph_data(graph_id)
-                
-                # 更新项目状态
+
+                    def wait_progress_callback(msg, progress_ratio):
+                        progress = 55 + int(progress_ratio * 35)  # 55% - 90%
+                        task_manager.update_task(task_id, message=msg, progress=progress)
+
+                    builder._wait_for_episodes(episode_uuids, wait_progress_callback)
+
+                    task_manager.update_task(task_id, message="获取图谱数据...", progress=95)
+                    graph_data = builder.get_graph_data(graph_id)
+                    node_count = graph_data.get("node_count", 0)
+                    edge_count = graph_data.get("edge_count", 0)
+
+                # ── 完成（两种后端共用）────────────────────────────────────
                 project.status = ProjectStatus.GRAPH_COMPLETED
                 ProjectManager.save_project(project)
-                
-                node_count = graph_data.get("node_count", 0)
-                edge_count = graph_data.get("edge_count", 0)
-                build_logger.info(f"[{task_id}] 图谱构建完成: graph_id={graph_id}, 节点={node_count}, 边={edge_count}")
-                
-                # 完成
+
+                build_logger.info(
+                    f"[{task_id}] 图谱构建完成: backend={requested_backend}, "
+                    f"graph_id={graph_id}, 节点={node_count}, 边={edge_count}"
+                )
                 task_manager.update_task(
                     task_id,
                     status=TaskStatus.COMPLETED,
@@ -481,28 +528,27 @@ def build_graph():
                     result={
                         "project_id": project_id,
                         "graph_id": graph_id,
+                        "backend": requested_backend,
                         "node_count": node_count,
                         "edge_count": edge_count,
-                        "chunk_count": total_chunks
                     }
                 )
-                
+
             except Exception as e:
-                # 更新项目状态为失败
                 build_logger.error(f"[{task_id}] 图谱构建失败: {str(e)}")
                 build_logger.debug(traceback.format_exc())
-                
+
                 project.status = ProjectStatus.FAILED
                 project.error = str(e)
                 ProjectManager.save_project(project)
-                
+
                 task_manager.update_task(
                     task_id,
                     status=TaskStatus.FAILED,
                     message=f"构建失败: {str(e)}",
                     error=traceback.format_exc()
                 )
-        
+
         # 启动后台线程
         thread = threading.Thread(target=build_task, daemon=True)
         thread.start()
@@ -512,7 +558,8 @@ def build_graph():
             "data": {
                 "project_id": project_id,
                 "task_id": task_id,
-                "message": "图谱构建任务已启动，请通过 /task/{task_id} 查询进度"
+                "backend": requested_backend,
+                "message": f"图谱构建任务已启动（后端: {requested_backend}），请通过 /task/{{task_id}} 查询进度"
             }
         })
         
@@ -565,22 +612,16 @@ def list_tasks():
 def get_graph_data(graph_id: str):
     """
     获取图谱数据（节点和边）
+
+    根据graph_id前缀自动选择后端：
+    - ragflow_* → RAGflow后端（读取本地缓存）
+    - 其他       → Zep后端
     """
     try:
-        if not Config.ZEP_API_KEY:
-            return jsonify({
-                "success": False,
-                "error": "ZEP_API_KEY未配置"
-            }), 500
-        
-        builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+        builder = _get_builder(graph_id=graph_id)
         graph_data = builder.get_graph_data(graph_id)
-        
-        return jsonify({
-            "success": True,
-            "data": graph_data
-        })
-        
+        return jsonify({"success": True, "data": graph_data})
+
     except Exception as e:
         return jsonify({
             "success": False,
@@ -592,23 +633,17 @@ def get_graph_data(graph_id: str):
 @graph_bp.route('/delete/<graph_id>', methods=['DELETE'])
 def delete_graph(graph_id: str):
     """
-    删除Zep图谱
+    删除图谱
+
+    根据graph_id前缀自动选择后端：
+    - ragflow_* → 删除RAGflow数据集及本地缓存
+    - 其他       → 删除Zep图谱
     """
     try:
-        if not Config.ZEP_API_KEY:
-            return jsonify({
-                "success": False,
-                "error": "ZEP_API_KEY未配置"
-            }), 500
-        
-        builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+        builder = _get_builder(graph_id=graph_id)
         builder.delete_graph(graph_id)
-        
-        return jsonify({
-            "success": True,
-            "message": f"图谱已删除: {graph_id}"
-        })
-        
+        return jsonify({"success": True, "message": f"图谱已删除: {graph_id}"})
+
     except Exception as e:
         return jsonify({
             "success": False,
