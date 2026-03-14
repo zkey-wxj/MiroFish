@@ -91,6 +91,113 @@ Click the image to watch MiroFish's deep prediction of the lost ending based on 
 4. **Report Generation**: ReportAgent with rich toolset for deep interaction with post-simulation environment
 5. **Deep Interaction**: Chat with any agent in the simulated world & Interact with ReportAgent
 
+## 🏗️ System Architecture
+
+### Layer Breakdown
+
+| Layer | Core Modules | Responsibilities |
+|------|--------------|------------------|
+| Presentation | `frontend/src/views/*`, `frontend/src/components/*` | 5-step workflow UI, live simulation status, report and interaction pages |
+| API | `backend/app/api/graph.py`, `simulation.py`, `report.py` | Public APIs for graph build, simulation control, report generation and download |
+| Orchestration | `simulation_manager.py`, `simulation_runner.py` | Simulation state machine, process lifecycle, pause/resume/stop, live status aggregation |
+| Memory & Graph | `graph_builder.py`, `zep_entity_reader.py`, `zep_graph_memory_updater.py` | Seed structuring, graph writing, entity filtering, and post-simulation memory writeback |
+| Reasoning & Report | `report_agent.py`, `zep_tools.py`, `utils/llm_client.py` | ReACT multi-step reasoning, tool calls, and interactive prediction report generation |
+
+### Project Code Structure Tree
+
+```text
+MiroFish/
+├── frontend/                                  # Vue3 frontend project
+│   ├── package.json                           # frontend dependencies and scripts
+│   ├── vite.config.js                         # Vite build/dev server config
+│   ├── index.html                             # frontend HTML entry
+│   └── src/
+│       ├── main.js                            # Vue app bootstrap
+│       ├── App.vue                            # root component
+│       ├── api/                               # backend API wrappers
+│       │   ├── index.js                       # Axios instance and shared request config
+│       │   ├── graph.js                       # graph build related APIs
+│       │   ├── simulation.js                  # simulation control APIs
+│       │   └── report.js                      # report generation/download/chat APIs
+│       ├── router/
+│       │   └── index.js                       # frontend routes
+│       ├── store/
+│       │   └── pendingUpload.js               # pending upload state store
+│       ├── views/                             # page-level views
+│       │   ├── Home.vue                       # home page
+│       │   ├── MainView.vue                   # main workflow container
+│       │   ├── Process.vue                    # 5-step process page
+│       │   ├── SimulationView.vue             # simulation preparation page
+│       │   ├── SimulationRunView.vue          # live simulation monitor page
+│       │   ├── ReportView.vue                 # report viewer page
+│       │   └── InteractionView.vue            # deep interaction page
+│       ├── components/                        # business components
+│       │   ├── Step1GraphBuild.vue            # Step1 graph build component
+│       │   ├── Step2EnvSetup.vue              # Step2 environment setup component
+│       │   ├── Step3Simulation.vue            # Step3 simulation component
+│       │   ├── Step4Report.vue                # Step4 report component
+│       │   ├── Step5Interaction.vue           # Step5 interaction component
+│       │   ├── GraphPanel.vue                 # graph data panel
+│       │   └── HistoryDatabase.vue            # historical memory/data panel
+│       └── assets/logo/                       # frontend logo assets
+│           ├── MiroFish_logo_left.jpeg
+│           └── MiroFish_logo_compressed.jpeg
+├── backend/                                   # Flask backend project
+│   ├── run.py                                 # backend service entrypoint
+│   ├── requirements.txt                       # Python dependency list
+│   ├── pyproject.toml                         # Python project metadata/tooling
+│   ├── uv.lock                                # uv-locked dependency versions
+│   ├── app/
+│   │   ├── __init__.py                        # Flask app factory and blueprint wiring
+│   │   ├── config.py                          # backend config and env loading
+│   │   ├── api/                               # API route layer
+│   │   │   ├── __init__.py                    # Blueprint initialization
+│   │   │   ├── graph.py                       # graph build and graph management endpoints
+│   │   │   ├── simulation.py                  # entity read, simulation create/run/control endpoints
+│   │   │   └── report.py                      # report generate/query/download/chat endpoints
+│   │   ├── services/                          # core business services
+│   │   │   ├── graph_builder.py               # GraphRAG graph build service
+│   │   │   ├── ontology_generator.py          # ontology/entity type generation
+│   │   │   ├── text_processor.py              # seed text cleaning/preprocessing
+│   │   │   ├── zep_entity_reader.py           # Zep graph entity read/filter service
+│   │   │   ├── oasis_profile_generator.py     # OASIS persona/profile generation
+│   │   │   ├── simulation_config_generator.py # simulation config auto-generation
+│   │   │   ├── simulation_manager.py          # simulation lifecycle state manager
+│   │   │   ├── simulation_runner.py           # background simulation execution/monitoring
+│   │   │   ├── simulation_ipc.py              # simulation process IPC protocol
+│   │   │   ├── zep_graph_memory_updater.py    # write simulation actions back to graph memory
+│   │   │   ├── zep_tools.py                   # ReportAgent tool integrations
+│   │   │   └── report_agent.py                # ReACT report generation and Q&A service
+│   │   ├── models/                            # state model layer
+│   │   │   ├── __init__.py
+│   │   │   ├── project.py                     # project state and metadata manager
+│   │   │   └── task.py                        # async task state model
+│   │   └── utils/                             # shared infrastructure utilities
+│   │       ├── __init__.py
+│   │       ├── llm_client.py                  # OpenAI-SDK-compatible LLM client
+│   │       ├── file_parser.py                 # uploaded file parsing utilities
+│   │       ├── logger.py                      # layered logging system
+│   │       ├── retry.py                       # retry helpers/decorators
+│   │       └── zep_paging.py                  # Zep paging helper
+│   ├── scripts/                               # OASIS runtime scripts
+│   │   ├── run_parallel_simulation.py         # Twitter + Reddit parallel simulation entry
+│   │   ├── run_twitter_simulation.py          # Twitter simulation runner
+│   │   ├── run_reddit_simulation.py           # Reddit simulation runner
+│   │   ├── action_logger.py                   # agent action logging utility
+│   │   └── test_profile_format.py             # profile format validation script
+│   ├── uploads/                               # runtime data (projects/simulations/reports)
+│   └── logs/                                  # backend runtime logs
+├── static/
+│   └── image/                                 # README images and demo assets
+├── package.json                               # root-level scripts for frontend/backend
+├── docker-compose.yml                         # Docker orchestration (frontend + backend)
+├── Dockerfile                                 # Docker image build definition
+├── .env.example                               # environment variable template
+├── README.md                                  # Chinese documentation
+├── README-EN.md                               # English documentation
+└── LICENSE                                    # open-source license
+```
+
 ## 🚀 Quick Start
 
 ### Option 1: Source Code Deployment (Recommended)
