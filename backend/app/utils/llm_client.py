@@ -62,9 +62,9 @@ class LLMClient:
             kwargs["response_format"] = response_format
         
         response = self.client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content
-        # 部分模型（如MiniMax M2.5）会在content中包含<think>思考内容，需要移除
-        content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+        content = response.choices[0].message.content or ""
+        # 部分模型会在 content 中夹带 <think>...</think>，且标签可能大小写不一致
+        content = re.sub(r'<think\b[^>]*>[\s\S]*?</think>', '', content, flags=re.IGNORECASE).strip()
         return content
     
     def chat_json(
