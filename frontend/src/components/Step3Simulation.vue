@@ -396,19 +396,20 @@ const resetAllState = () => {
 }
 
 // 启动模拟
-const doStartSimulation = async () => {
+const doStartSimulation = async (forceRestart = false) => {
   if (!props.simulationId) {
     addLog('错误：缺少 simulationId')
     return
   }
   
-  // 先重置所有状态，确保不会受到上一次模拟的影响
+  // 仅在强制重启时重置状态，避免覆盖已恢复的数据
+  if (forceRestart) {
+    resetAllState()
+  }
   if (isPlaybackActive.value) {
     isPlaybackActive.value = false
   }
   hasHistoryData.value = false
-  
-  resetAllState()
   
   isStarting.value = true
   startError.value = null
@@ -419,7 +420,7 @@ const doStartSimulation = async () => {
     const params = {
       simulation_id: props.simulationId,
       platform: 'parallel',
-      force: true,  // 强制重新开始
+      force: forceRestart,  // 强制重新开始
       enable_graph_memory_update: true  // 开启动态图谱更新
     }
     
@@ -461,7 +462,7 @@ const doStartSimulation = async () => {
 const handleRestartSimulation = async () => {
   if (!props.simulationId || isStarting.value) return
   addLog('重新模拟：将归档历史日志并强制重启')
-  await doStartSimulation()
+  await doStartSimulation(true)
 }
 
 // 停止模拟
@@ -661,7 +662,45 @@ const fallbackToStartIfNeeded = () => {
   if (hasFallbackToStart.value) return
   hasFallbackToStart.value = true
   isPlaybackActive.value = false
-  doStartSimulation()
+  doStartSimulation(false)
+}
+
+// 启动前先检查运行状态，避免刷新时重启已运行或已完成的模拟
+const initializeSimulation = async () => {
+  if (!props.simulationId) return
+
+  try {
+    const res = await getRunStatus(props.simulationId)
+    if (res.success && res.data) {
+      const data = res.data
+      runStatus.value = data
+
+      if (data.runner_status === 'running') {
+        addLog('检测到模拟正在运行，恢复轮询...')
+        phase.value = 1
+        emit('update-status', 'processing')
+        startStatusPolling()
+        startDetailPolling()
+        await fetchRunStatusDetail()
+        return
+      }
+
+      if (data.runner_status === 'completed' || data.runner_status === 'stopped') {
+        addLog('检测到模拟已完成，加载历史数据...')
+        await fetchRunStatusDetail()
+        hasHistoryData.value = allActions.value.length > 0
+        if (hasHistoryData.value) {
+          phase.value = 2
+          emit('update-status', 'completed')
+          return
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('获取运行状态失败，尝试直接启动模拟', err)
+  }
+
+  doStartSimulation(false)
 }
 
 // Helpers
@@ -741,11 +780,11 @@ const handleNextStep = async () => {
       // 跳转到报告页面
       router.push({ name: 'Report', params: { reportId } })
     } else {
-      addLog(`✗ 启动报告生成失败: ${res.error || '未知错误'}`)
+      addLog(`❌启动报告生成失败: ${res.error || '未知错误'}`)
       isGeneratingReport.value = false
     }
   } catch (err) {
-    addLog(`✗ 启动报告生成异常: ${err.message}`)
+    addLog(`❌启动报告生成异常: ${err.message}`)
     isGeneratingReport.value = false
   }
 }
@@ -761,12 +800,12 @@ watch(() => props.systemLogs?.length, () => {
 })
 
 onMounted(() => {
-  addLog(isPlaybackActive.value ? 'Step3 ???????' : 'Step3 ???????')
+  addLog(isPlaybackActive.value ? 'Step3 回放模式初始化' : 'Step3 模拟运行初始化')
   if (props.simulationId) {
     if (isPlaybackActive.value) {
       loadPlaybackData()
     } else {
-      doStartSimulation()
+      initializeSimulation()
     }
   }
 })

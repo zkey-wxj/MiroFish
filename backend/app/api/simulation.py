@@ -1,4 +1,4 @@
-"""
+﻿"""
 模拟相关API路由
 Step2: Zep实体读取与过滤、OASIS模拟准备与运行（全程自动化）
 """
@@ -1509,6 +1509,7 @@ def start_simulation():
 
     关于 force 参数：
         - 启用后，如果模拟正在运行或已完成，会先停止并清理运行日志
+        - force=false 时，如果模拟正在运行或已完成/停止，将直接返回当前状态，不会重启
         - 清理的内容包括：run_state.json, actions.jsonl, simulation.log 等
         - 不会清理配置文件（simulation_config.json）和 profile 文件
         - 适用于需要重新运行模拟的场景
@@ -1530,7 +1531,10 @@ def start_simulation():
                 "reddit_running": true,
                 "started_at": "2025-12-01T10:00:00",
                 "graph_memory_update_enabled": true,  // 是否启用了图谱记忆更新
-                "force_restarted": true               // 是否是强制重新开始
+                "force_restarted": true,              // 是否是强制重新开始
+                "already_running": true,               // 幂等返回：已在运行
+                "already_completed": false,            // 幂等返回：已完成
+                "already_stopped": false               // 幂等返回：已停止
             }
         }
     """
@@ -1579,6 +1583,26 @@ def start_simulation():
                 "success": False,
                 "error": f"模拟不存在: {simulation_id}"
             }), 404
+
+        # force=false 时幂等返回当前运行状态，避免刷新导致重启
+        existing_run_state = SimulationRunner.get_run_state(simulation_id)
+        if not force and existing_run_state:
+            status_value = existing_run_state.runner_status.value
+            if status_value == "running":
+                response_data = existing_run_state.to_dict()
+                response_data["already_running"] = True
+                return jsonify({
+                    "success": True,
+                    "data": response_data
+                })
+            if status_value in ["completed", "stopped"]:
+                response_data = existing_run_state.to_dict()
+                response_data["already_completed"] = status_value == "completed"
+                response_data["already_stopped"] = status_value == "stopped"
+                return jsonify({
+                    "success": True,
+                    "data": response_data
+                })
 
         force_restarted = False
         
@@ -2763,3 +2787,4 @@ def close_simulation_env():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
