@@ -140,6 +140,28 @@
               <span class="stat-label">SCHEMA类型</span>
             </div>
           </div>
+
+          <!-- Dedup Report -->
+          <div v-if="dedupReport && dedupReport.groups_found > 0" class="dedup-section">
+            <div class="dedup-title">
+              实体去重：合并 <strong>{{ dedupReport.groups_found }}</strong> 组，删除 <strong>{{ dedupReport.nodes_removed }}</strong> 个冗余节点
+            </div>
+            <div class="dedup-list">
+              <div
+                v-for="(action, idx) in dedupReport.merge_actions"
+                :key="idx"
+                class="dedup-item"
+              >
+                <span class="dedup-keep">✓ {{ action.keep_node.name }}</span>
+                <span class="dedup-arrow">←</span>
+                <span
+                  v-for="(removed, ri) in action.removed_nodes"
+                  :key="ri"
+                  class="dedup-removed"
+                >{{ removed.name }}<span v-if="ri < action.removed_nodes.length - 1">、</span></span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -199,6 +221,7 @@ const props = defineProps({
   ontologyProgress: Object,
   buildProgress: Object,
   graphData: Object,
+  dedupReport: Object,
   systemLogs: { type: Array, default: () => [] }
 })
 
@@ -596,6 +619,61 @@ watch(() => props.systemLogs.length, () => {
   text-transform: uppercase;
   margin-top: 4px;
   display: block;
+}
+
+/* Dedup Report */
+.dedup-section {
+  margin-top: 12px;
+  padding: 10px;
+  background: #FAFAFA;
+  border-radius: 6px;
+  border-left: 3px solid #FF6B35;
+}
+
+.dedup-title {
+  font-size: 11px;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+.dedup-title strong {
+  color: #FF6B35;
+}
+
+.dedup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.dedup-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 3px 6px;
+  background: #FFF;
+  border-radius: 3px;
+  flex-wrap: wrap;
+}
+
+.dedup-keep {
+  color: #2E7D32;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dedup-arrow {
+  color: #999;
+  font-size: 10px;
+}
+
+.dedup-removed {
+  color: #B71C1C;
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 
 /* Step 03 Button */

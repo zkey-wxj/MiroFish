@@ -423,6 +423,8 @@ def build_graph():
                 graph_id = ""
                 node_count = 0
                 edge_count = 0
+                total_chunks = 0
+                dedup_result = None
 
                 if requested_backend == 'ragflow':
                     # ── RAGflow后端 ──────────────────────────────────────────
@@ -493,26 +495,64 @@ def build_graph():
                         progress=15
                     )
                     episode_uuids = builder.add_text_batches(
-                        graph_id, chunks, batch_size=3,
+                        graph_id,
+                        chunks,
+                        batch_size=3,
                         progress_callback=add_progress_callback
                     )
 
+                    # 等待Zep处理完成（查询每个episode的processed状态）
                     task_manager.update_task(
-                        task_id, message="等待Zep处理数据...", progress=55
+                        task_id,
+                        message="等待Zep处理数据...",
+                        progress=55
                     )
 
                     def wait_progress_callback(msg, progress_ratio):
-                        progress = 55 + int(progress_ratio * 35)  # 55% - 90%
+                        progress = 55 + int(progress_ratio * 25)  # 55% - 80%
                         task_manager.update_task(task_id, message=msg, progress=progress)
 
                     builder._wait_for_episodes(episode_uuids, wait_progress_callback)
 
-                    task_manager.update_task(task_id, message="获取图谱数据...", progress=95)
+                    # 实体去重
+                    task_manager.update_task(
+                        task_id,
+                        message="执行实体去重...",
+                        progress=80
+                    )
+                    try:
+                        from ..services.entity_deduplicator import EntityDeduplicator
+                        deduplicator = EntityDeduplicator()
+                        dedup_report = deduplicator.deduplicate(
+                            graph_id=graph_id,
+                            progress_callback=lambda msg, prog: task_manager.update_task(
+                                task_id,
+                                message=f"去重: {msg}",
+                                progress=80 + int(prog * 10),  # 80% - 90%
+                            ),
+                        )
+                        dedup_result = dedup_report.to_dict()
+                        build_logger.info(
+                            f"[{task_id}] 实体去重完成: "
+                            f"发现 {dedup_report.groups_found} 组重复 "
+                            f"删除 {dedup_report.nodes_removed} 个节点 "
+                            f"迁移 {dedup_report.edges_migrated} 条边"
+                        )
+                    except Exception as dedup_err:
+                        build_logger.warning(
+                            f"[{task_id}] 实体去重失败（不影响图谱构建）: {dedup_err}"
+                        )
+
+                    # 获取图谱数据
+                    task_manager.update_task(
+                        task_id,
+                        message="获取图谱数据...",
+                        progress=95
+                    )
                     graph_data = builder.get_graph_data(graph_id)
                     node_count = graph_data.get("node_count", 0)
                     edge_count = graph_data.get("edge_count", 0)
 
-                # ── 完成（两种后端共用）────────────────────────────────────
                 project.status = ProjectStatus.GRAPH_COMPLETED
                 ProjectManager.save_project(project)
 
@@ -531,6 +571,9 @@ def build_graph():
                         "backend": requested_backend,
                         "node_count": node_count,
                         "edge_count": edge_count,
+                        "chunk_count": total_chunks,
+                        "dedup_report": dedup_result
+
                     }
                 )
 
@@ -644,6 +687,65 @@ def delete_graph(graph_id: str):
         builder.delete_graph(graph_id)
         return jsonify({"success": True, "message": f"图谱已删除: {graph_id}"})
 
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
+# ============== 接口：实体去重 ==============
+
+@graph_bp.route('/deduplicate', methods=['POST'])
+def deduplicate_graph():
+    """
+    对已构建的图谱执行实体去重
+    
+    请求（JSON）：
+        {
+            "graph_id": "mirofish_xxxx",  // 必填
+            "dry_run": false               // 可选，默认false。true时仅检测不合并
+        }
+        
+    返回：
+        {
+            "success": true,
+            "data": { ...DeduplicationReport... }
+        }
+    """
+    try:
+        if not Config.ZEP_API_KEY:
+            return jsonify({
+                "success": False,
+                "error": "ZEP_API_KEY未配置"
+            }), 500
+        
+        if not Config.LLM_API_KEY:
+            return jsonify({
+                "success": False,
+                "error": "LLM_API_KEY未配置（实体去重需要 LLM 支持）"
+            }), 500
+        
+        data = request.get_json() or {}
+        graph_id = data.get('graph_id')
+        dry_run = data.get('dry_run', False)
+        
+        if not graph_id:
+            return jsonify({
+                "success": False,
+                "error": "请提供 graph_id"
+            }), 400
+        
+        from ..services.entity_deduplicator import EntityDeduplicator
+        deduplicator = EntityDeduplicator()
+        report = deduplicator.deduplicate(graph_id=graph_id, dry_run=dry_run)
+        
+        return jsonify({
+            "success": True,
+            "data": report.to_dict()
+        })
+        
     except Exception as e:
         return jsonify({
             "success": False,

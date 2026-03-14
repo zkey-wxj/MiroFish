@@ -355,6 +355,31 @@
                   </div>
                 </div>
               </div>
+
+              <div class="detail-section" v-if="dedupReport && dedupReport.groups_found > 0">
+                <div class="detail-label">实体去重</div>
+                <div class="dedup-summary">
+                  <span class="dedup-stat">合并 <strong>{{ dedupReport.groups_found }}</strong> 组重复实体</span>
+                  <span class="dedup-stat">删除 <strong>{{ dedupReport.nodes_removed }}</strong> 个冗余节点</span>
+                </div>
+                <div class="dedup-details">
+                  <div
+                    v-for="(action, idx) in dedupReport.merge_actions"
+                    :key="idx"
+                    class="dedup-group"
+                  >
+                    <div class="dedup-group-header">
+                      <span class="dedup-keep">✓ {{ action.keep_node.name }}</span>
+                      <span class="dedup-arrow">←</span>
+                      <span
+                        v-for="(removed, ri) in action.removed_nodes"
+                        :key="ri"
+                        class="dedup-removed"
+                      >{{ removed.name }}<span v-if="ri < action.removed_nodes.length - 1">、</span></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -430,6 +455,7 @@ const graphLoading = ref(false)
 const error = ref('')
 const projectData = ref(null)
 const graphData = ref(null)
+const dedupReport = ref(null)
 const buildProgress = ref(null)
 const ontologyProgress = ref(null) // 本体生成进度
 const currentPhase = ref(-1) // -1: 上传中, 0: 本体生成中, 1: 图谱构建, 2: 完成
@@ -816,6 +842,10 @@ const pollTaskStatus = async (taskId) => {
       
       if (task.status === 'completed') {
         console.log('✅ 图谱构建完成，正在加载完整数据...')
+        
+        if (task.result?.dedup_report) {
+          dedupReport.value = task.result.dedup_report
+        }
         
         stopPolling()
         stopGraphPolling()
@@ -1962,6 +1992,55 @@ onUnmounted(() => {
   color: #999;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* 去重报告 */
+.dedup-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  color: #555;
+}
+
+.dedup-summary strong {
+  color: #FF6B35;
+}
+
+.dedup-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.dedup-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  padding: 5px 8px;
+  background: #F5F5F5;
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+
+.dedup-keep {
+  color: #2E7D32;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dedup-arrow {
+  color: #999;
+  font-size: 0.7rem;
+}
+
+.dedup-removed {
+  color: #B71C1C;
+  text-decoration: line-through;
+  opacity: 0.75;
 }
 
 /* 下一步按钮 */

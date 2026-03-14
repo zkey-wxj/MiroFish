@@ -56,6 +56,7 @@
           :ontologyProgress="ontologyProgress"
           :buildProgress="buildProgress"
           :graphData="graphData"
+          :dedupReport="dedupReport"
           :systemLogs="systemLogs"
           @next-step="handleNextStep"
         />
@@ -100,6 +101,7 @@ const graphLoading = ref(false)
 const error = ref('')
 const projectData = ref(null)
 const graphData = ref(null)
+const dedupReport = ref(null)
 const currentPhase = ref(-1) // -1: Upload, 0: Ontology, 1: Build, 2: Complete
 const ontologyProgress = ref(null)
 const buildProgress = ref(null)
@@ -332,9 +334,20 @@ const pollTaskStatus = async (taskId) => {
       buildProgress.value = { progress: task.progress || 0, message: task.message }
       
       if (task.status === 'completed') {
+        if (task.result?.dedup_report) {
+          dedupReport.value = task.result.dedup_report
+          const dr = task.result.dedup_report
+          if (dr.groups_found > 0) {
+            addLog(`实体去重: 合并 ${dr.groups_found} 组, 删除 ${dr.nodes_removed} 个冗余节点`)
+            for (const action of dr.merge_actions) {
+              const removedNames = action.removed_nodes.map(n => n.name).join(', ')
+              addLog(`  ✓ ${action.canonical_name} ← ${removedNames}`)
+            }
+          }
+        }
         addLog('Graph build task completed.')
         stopPolling()
-        stopGraphPolling() // Stop polling, do final load
+        stopGraphPolling()
         currentPhase.value = 2
         
         // Final load
