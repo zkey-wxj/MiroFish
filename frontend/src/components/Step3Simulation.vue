@@ -92,6 +92,14 @@
 
       <div class="action-controls">
         <button 
+          v-if="isPlaybackActive && hasHistoryData"
+          class="action-btn secondary"
+          :disabled="isStarting || isStopping"
+          @click="handleRestartSimulation"
+        >
+          重新模拟
+        </button>
+        <button 
           class="action-btn primary"
           :disabled="phase !== 2 || isGeneratingReport"
           @click="handleNextStep"
@@ -100,6 +108,9 @@
           {{ isGeneratingReport ? '启动中...' : '开始生成结果报告' }} 
           <span v-if="!isGeneratingReport" class="arrow-icon">→</span>
         </button>
+        <span v-if="isPlaybackActive && hasHistoryData" class="playback-hint">
+          重新模拟将归档历史日志并强制重启
+        </span>
       </div>
     </div>
 
@@ -305,7 +316,11 @@ const props = defineProps({
   },
   projectData: Object,
   graphData: Object,
-  systemLogs: Array
+  systemLogs: Array,
+  playbackMode: {
+    type: Boolean,
+    default: false
+  }
 })
 
 const emit = defineEmits(['go-back', 'next-step', 'add-log', 'update-status'])
@@ -322,6 +337,9 @@ const runStatus = ref({})
 const allActions = ref([]) // 所有动作（增量累积）
 const actionIds = ref(new Set()) // 用于去重的动作ID集合
 const scrollContainer = ref(null)
+const isPlaybackActive = ref(props.playbackMode)
+const hasHistoryData = ref(false)
+const hasFallbackToStart = ref(false)
 
 // Computed
 // 按时间顺序显示动作（最新的在最后面，即底部）
@@ -373,6 +391,7 @@ const resetAllState = () => {
   startError.value = null
   isStarting.value = false
   isStopping.value = false
+  hasHistoryData.value = false
   stopPolling()  // 停止之前可能存在的轮询
 }
 
@@ -384,6 +403,11 @@ const doStartSimulation = async () => {
   }
   
   // 先重置所有状态，确保不会受到上一次模拟的影响
+  if (isPlaybackActive.value) {
+    isPlaybackActive.value = false
+  }
+  hasHistoryData.value = false
+  
   resetAllState()
   
   isStarting.value = true
@@ -432,6 +456,12 @@ const doStartSimulation = async () => {
   } finally {
     isStarting.value = false
   }
+}
+
+const handleRestartSimulation = async () => {
+  if (!props.simulationId || isStarting.value) return
+  addLog('重新模拟：将归档历史日志并强制重启')
+  await doStartSimulation()
 }
 
 // 停止模拟
@@ -597,6 +627,43 @@ const fetchRunStatusDetail = async () => {
   }
 }
 
+const loadPlaybackData = async () => {
+  if (!props.simulationId) {
+    addLog('错误：缺少 simulationId')
+    return
+  }
+  
+  addLog('回放模式：加载历史数据...')
+  
+  try {
+    const statusRes = await getRunStatus(props.simulationId)
+    if (statusRes.success && statusRes.data) {
+      runStatus.value = statusRes.data
+    }
+    
+    await fetchRunStatusDetail()
+    hasHistoryData.value = allActions.value.length > 0
+    
+    if (hasHistoryData.value) {
+      phase.value = 2
+      emit('update-status', 'completed')
+    } else {
+      addLog('回放数据为空，自动进入模拟启动流程')
+      fallbackToStartIfNeeded()
+    }
+  } catch (err) {
+    addLog(`回放数据加载失败: ${err.message}`)
+    fallbackToStartIfNeeded()
+  }
+}
+
+const fallbackToStartIfNeeded = () => {
+  if (hasFallbackToStart.value) return
+  hasFallbackToStart.value = true
+  isPlaybackActive.value = false
+  doStartSimulation()
+}
+
 // Helpers
 const getActionTypeLabel = (type) => {
   const labels = {
@@ -694,14 +761,22 @@ watch(() => props.systemLogs?.length, () => {
 })
 
 onMounted(() => {
-  addLog('Step3 模拟运行初始化')
+  addLog(isPlaybackActive.value ? 'Step3 ???????' : 'Step3 ???????')
   if (props.simulationId) {
-    doStartSimulation()
+    if (isPlaybackActive.value) {
+      loadPlaybackData()
+    } else {
+      doStartSimulation()
+    }
   }
 })
 
 onUnmounted(() => {
   stopPolling()
+})
+
+watch(() => props.playbackMode, (newVal) => {
+  isPlaybackActive.value = newVal
 })
 </script>
 
@@ -878,6 +953,12 @@ onUnmounted(() => {
 }
 
 /* Action Button */
+.action-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .action-btn {
   display: inline-flex;
   align-items: center;
@@ -902,9 +983,25 @@ onUnmounted(() => {
   background: #333;
 }
 
+.action-btn.secondary {
+  background: #FFF;
+  color: #111;
+  border: 1px solid #111;
+}
+
+.action-btn.secondary:hover:not(:disabled) {
+  background: #F5F5F5;
+}
+
 .action-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+.playback-hint {
+  font-size: 11px;
+  color: #666;
+  letter-spacing: 0.02em;
 }
 
 /* --- Main Content Area --- */

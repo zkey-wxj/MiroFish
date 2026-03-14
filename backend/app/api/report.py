@@ -6,6 +6,7 @@ Report API路由
 import os
 import traceback
 import threading
+from datetime import datetime
 from flask import request, jsonify, send_file
 
 from . import report_bp
@@ -545,6 +546,26 @@ def chat_with_report_agent():
         
         result = agent.chat(message=message, chat_history=chat_history)
         
+        # 记录 Report Agent 对话历史（用于回放）
+        try:
+            report = ReportManager.get_report_by_simulation(simulation_id)
+            if report:
+                user_entry = {
+                    "role": "user",
+                    "content": message,
+                    "timestamp": datetime.now().isoformat()
+                }
+                assistant_entry = {
+                    "role": "assistant",
+                    "content": result.get("response", ""),
+                    "timestamp": datetime.now().isoformat(),
+                    "tool_calls": result.get("tool_calls", []),
+                    "sources": result.get("sources", [])
+                }
+                ReportManager.append_chat_history(report.report_id, [user_entry, assistant_entry])
+        except Exception as e:
+            logger.warning(f"写入 Report Agent 对话历史失败: {str(e)}")
+        
         return jsonify({
             "success": True,
             "data": result
@@ -552,6 +573,49 @@ def chat_with_report_agent():
         
     except Exception as e:
         logger.error(f"对话失败: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
+# ============== Report Agent 对话历史 ==============
+
+@report_bp.route('/<report_id>/chat/history', methods=['GET'])
+def get_report_chat_history(report_id: str):
+    """
+    获取 Report Agent 对话历史
+    
+    Query参数：
+        limit: 返回数量限制（默认200）
+    
+    返回：
+        {
+            "success": true,
+            "data": {
+                "count": 10,
+                "history": [
+                    {"role": "user", "content": "...", "timestamp": "..."},
+                    {"role": "assistant", "content": "...", "timestamp": "..."}
+                ]
+            }
+        }
+    """
+    try:
+        limit = request.args.get('limit', 200, type=int)
+        history = ReportManager.get_chat_history(report_id, limit=limit)
+        
+        return jsonify({
+            "success": True,
+            "data": {
+                "count": len(history),
+                "history": history
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"获取对话历史失败: {str(e)}")
         return jsonify({
             "success": False,
             "error": str(e),

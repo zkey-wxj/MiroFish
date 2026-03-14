@@ -49,3 +49,12 @@ export const getReport = (reportId) => {
 export const chatWithReport = (data) => {
   return requestWithRetry(() => service.post('/api/report/chat', data), 3, 1000)
 }
+
+/**
+ * 获取 Report Agent 对话历史
+ * @param {string} reportId
+ * @param {number} limit
+ */
+export const getReportChatHistory = (reportId, limit = 200) => {
+  return service.get(`/api/report/${reportId}/chat/history`, { params: { limit } })
+}

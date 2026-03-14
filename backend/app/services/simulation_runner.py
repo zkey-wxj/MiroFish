@@ -1129,6 +1129,43 @@ class SimulationRunner:
         
         cleaned_files = []
         errors = []
+        archived_files = []
+        archive_dir = None
+        
+        # 归档旧日志（用于历史回放）
+        archive_targets = [
+            os.path.join(sim_dir, "run_state.json"),
+            os.path.join(sim_dir, "simulation.log"),
+            os.path.join(sim_dir, "stdout.log"),
+            os.path.join(sim_dir, "stderr.log"),
+            os.path.join(sim_dir, "twitter_simulation.db"),
+            os.path.join(sim_dir, "reddit_simulation.db"),
+            os.path.join(sim_dir, "env_status.json"),
+            os.path.join(sim_dir, "twitter", "actions.jsonl"),
+            os.path.join(sim_dir, "reddit", "actions.jsonl"),
+        ]
+        
+        if any(os.path.exists(p) for p in archive_targets):
+            archive_dir = os.path.join(
+                sim_dir,
+                "archives",
+                datetime.now().strftime("%Y%m%d_%H%M%S")
+            )
+            os.makedirs(archive_dir, exist_ok=True)
+            
+            for src in archive_targets:
+                if not os.path.exists(src):
+                    continue
+                
+                rel_path = os.path.relpath(src, sim_dir)
+                dest_path = os.path.join(archive_dir, rel_path)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                
+                try:
+                    shutil.copy2(src, dest_path)
+                    archived_files.append(rel_path)
+                except Exception as e:
+                    errors.append(f"归档 {rel_path} 失败: {str(e)}")
         
         # 要删除的文件列表（包括数据库文件）
         files_to_delete = [
@@ -1175,6 +1212,8 @@ class SimulationRunner:
         return {
             "success": len(errors) == 0,
             "cleaned_files": cleaned_files,
+            "archived_files": archived_files if archived_files else None,
+            "archive_dir": archive_dir,
             "errors": errors if errors else None
         }
     

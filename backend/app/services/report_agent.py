@@ -1952,6 +1952,42 @@ class ReportManager:
     def _get_console_log_path(cls, report_id: str) -> str:
         """获取控制台日志文件路径"""
         return os.path.join(cls._get_report_folder(report_id), "console_log.txt")
+
+    @classmethod
+    def _get_chat_history_path(cls, report_id: str) -> str:
+        """获取 Report Agent 对话历史文件路径"""
+        return os.path.join(cls._get_report_folder(report_id), "chat_history.jsonl")
+
+    @classmethod
+    def append_chat_history(cls, report_id: str, entries: List[Dict[str, Any]]):
+        """追加写入 Report Agent 对话历史"""
+        folder = cls._ensure_report_folder(report_id)
+        log_path = cls._get_chat_history_path(report_id)
+        
+        with open(log_path, 'a', encoding='utf-8') as f:
+            for entry in entries:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    @classmethod
+    def get_chat_history(cls, report_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+        """读取 Report Agent 对话历史"""
+        log_path = cls._get_chat_history_path(report_id)
+        
+        if not os.path.exists(log_path):
+            return []
+        
+        results = []
+        with open(log_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    results.append(json.loads(line.strip()))
+                except json.JSONDecodeError:
+                    continue
+        
+        if limit is not None and limit > 0 and len(results) > limit:
+            return results[-limit:]
+        
+        return results
     
     @classmethod
     def get_console_log(cls, report_id: str, from_line: int = 0) -> Dict[str, Any]:

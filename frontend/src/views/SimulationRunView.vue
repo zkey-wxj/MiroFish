@@ -56,6 +56,7 @@
           :projectData="projectData"
           :graphData="graphData"
           :systemLogs="systemLogs"
+          :playbackMode="playbackMode"
           @go-back="handleGoBack"
           @next-step="handleNextStep"
           @add-log="addLog"
@@ -95,6 +96,7 @@ const graphData = ref(null)
 const graphLoading = ref(false)
 const systemLogs = ref([])
 const currentStatus = ref('processing') // processing | completed | error
+const playbackMode = computed(() => route.query.mode === 'playback')
 
 // --- Computed Layout Styles ---
 const leftPanelStyle = computed(() => {
