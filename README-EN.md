@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 <img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFish Logo" width="75%"/>
 
@@ -237,7 +237,19 @@ ZEP_API_KEY=your_zep_api_key
 # GRAPH_BACKEND=ragflow
 # RAGFLOW_BASE_URL=http://localhost
 # RAGFLOW_API_KEY=your-ragflow-api-key
+# Use local Zep (Neo4j + Qdrant)
+# GRAPH_BACKEND=zep_local
+# NEO4J_URI=bolt://localhost:7687
+# NEO4J_USERNAME=neo4j
+# NEO4J_PASSWORD=your_neo4j_password
+# QDRANT_URL=http://localhost:6333
+# EMBEDDING_MODEL=text-embedding-v3
+# EMBEDDING_USE_LOCAL=false
+# EMBEDDING_LOCAL_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+# EMBEDDING_CACHE_DIR=
 ```
+
+Local Zep mode requires Neo4j and Qdrant (optional: sentence-transformers for local embeddings).
 
 #### 2. Install Dependencies
 

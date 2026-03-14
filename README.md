@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 <img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFish Logo" width="75%"/>
 
@@ -165,9 +165,17 @@ MiroFish/
 │   │   │   └── report.py                      # 报告生成、查询、下载与问答接口
 │   │   ├── services/                          # 核心业务服务层
 │   │   │   ├── graph_builder.py               # GraphRAG 图谱构建服务
+│   │   │   ├── entity_extractor.py            # LLM 实体抽取与关系解析
 │   │   │   ├── ontology_generator.py          # 本体/实体类型生成服务
 │   │   │   ├── text_processor.py              # 种子文本清洗与预处理
 │   │   │   ├── zep_entity_reader.py           # Zep 图谱实体读取与过滤
+│   │   │   ├── zep_adapter/                   # 本地 Zep 适配器（Neo4j + Qdrant）
+│   │   │   │   ├── __init__.py                # 适配器入口与兼容导出
+│   │   │   │   ├── client.py                  # 本地 Zep 客户端实现
+│   │   │   │   ├── graph.py                   # Neo4j 图服务与 CRUD
+│   │   │   │   ├── memory.py                  # 本地记忆更新服务
+│   │   │   │   ├── types.py                   # 数据类型定义
+│   │   │   │   └── vector.py                  # Qdrant 向量服务与语义搜索
 │   │   │   ├── oasis_profile_generator.py     # OASIS 角色画像生成
 │   │   │   ├── simulation_config_generator.py # 模拟配置自动生成
 │   │   │   ├── simulation_manager.py          # 模拟状态机与生命周期管理
@@ -245,7 +253,19 @@ ZEP_API_KEY=your_zep_api_key
 # GRAPH_BACKEND=ragflow
 # RAGFLOW_BASE_URL=http://localhost
 # RAGFLOW_API_KEY=your-ragflow-api-key
+# 使用本地Zep (Neo4j + Qdrant)
+# GRAPH_BACKEND=zep_local
+# NEO4J_URI=bolt://localhost:7687
+# NEO4J_USERNAME=neo4j
+# NEO4J_PASSWORD=your_neo4j_password
+# QDRANT_URL=http://localhost:6333
+# EMBEDDING_MODEL=text-embedding-v3
+# EMBEDDING_USE_LOCAL=false
+# EMBEDDING_LOCAL_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+# EMBEDDING_CACHE_DIR=
 ```
+
+本地Zep模式需要Neo4j与Qdrant（可选使用sentence-transformers做本地Embedding）。
 
 #### 2. 安装依赖
 

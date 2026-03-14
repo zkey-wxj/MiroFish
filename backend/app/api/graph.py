@@ -1,4 +1,4 @@
-"""
+﻿"""
 图谱相关API路由
 采用项目上下文机制，服务端持久化状态
 """
@@ -42,10 +42,16 @@ def _get_builder(graph_id: Optional[str] = None, backend: Optional[str] = None):
         if not Config.RAGFLOW_API_KEY:
             raise ValueError("RAGFLOW_API_KEY 未配置，无法使用RAGflow后端")
         return RagflowGraphBuilderService()
-    else:
-        if not Config.ZEP_API_KEY:
-            raise ValueError("ZEP_API_KEY 未配置，无法使用Zep后端")
-        return GraphBuilderService(api_key=Config.ZEP_API_KEY)
+    if backend == "zep_local":
+        if not Config.LLM_API_KEY:
+            raise ValueError("LLM_API_KEY 未配置，无法使用本地Zep后端")
+        if not Config.NEO4J_PASSWORD:
+            raise ValueError("NEO4J_PASSWORD 未配置，无法使用本地Zep后端")
+        return GraphBuilderService(api_key=Config.ZEP_API_KEY, backend=backend)
+
+    if not Config.ZEP_API_KEY:
+        raise ValueError("ZEP_API_KEY 未配置，无法使用Zep后端")
+    return GraphBuilderService(api_key=Config.ZEP_API_KEY, backend=backend)
 
 # 获取日志器
 logger = get_logger('mirofish.api')
@@ -325,6 +331,17 @@ def build_graph():
                     "success": False,
                     "error": "RAGFLOW_API_KEY未配置，无法使用RAGflow后端"
                 }), 500
+        elif requested_backend == 'zep_local':
+            if not Config.LLM_API_KEY:
+                return jsonify({
+                    "success": False,
+                    "error": "LLM_API_KEY未配置，无法使用本地Zep后端"
+                }), 500
+            if not Config.NEO4J_PASSWORD:
+                return jsonify({
+                    "success": False,
+                    "error": "NEO4J_PASSWORD未配置，无法使用本地Zep后端"
+                }), 500
         else:
             if not Config.ZEP_API_KEY:
                 return jsonify({
@@ -468,7 +485,7 @@ def build_graph():
 
                 else:
                     # ── Zep后端（原有逻辑）───────────────────────────────────
-                    builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+                    builder = GraphBuilderService(api_key=Config.ZEP_API_KEY, backend=requested_backend)
 
                     task_manager.update_task(task_id, message="文本分块中...", progress=5)
                     chunks = TextProcessor.split_text(
